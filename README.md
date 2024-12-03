@@ -1,0 +1,1 @@
+Interpréteur pour un langage orienté objet décrit dans le cadre du cours de L3 de Thibaut Balabonsky : https://public.lmf.cnrs.fr/~blsk/CompilationLDD3/dm-kawa.html
