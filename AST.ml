@@ -35,6 +35,7 @@ type typed_expr = { expr: expr; typ: typ }
 
 
 
+module Env = Map.Make(String)
 
 
 type method_def = {
@@ -43,11 +44,15 @@ type method_def = {
     body :  instr list;
 }
 
+type m_env = method_def Env.t
+
 type class_def = {
     name : class_name;
-    methods : method_def list;
-    attributes : (ident * simple_typ) list;
+    methods : m_env;
+    attributes : (ident * simple_typ);
     elderly : class_name option
 }
 
 
+let find_method cl_env cl_name meth_name =
+  Env.find meth_name (Env.find cl_name cl_env).methods
