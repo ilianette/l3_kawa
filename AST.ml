@@ -49,10 +49,13 @@ type m_env = method_def Env.t
 type class_def = {
     name : class_name;
     methods : m_env;
-    attributes : (ident * simple_typ);
+    fields : typ Env.t;
     elderly : class_name option
 }
 
 
 let find_method cl_env cl_name meth_name =
   Env.find meth_name (Env.find cl_name cl_env).methods
+
+let find_field cl_env cl_name f_name =
+  Env.find f_name (Env.find cl_name cl_env).fields
