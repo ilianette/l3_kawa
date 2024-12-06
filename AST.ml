@@ -57,6 +57,11 @@ type class_def = {
     elderly : class_name option
 }
 
+type program = {
+    classes : class_def Env.t;
+    main : instr list;
+}
+
 
 let find_method cl_env cl_name meth_name =
   Env.find meth_name (Env.find cl_name cl_env).methods
