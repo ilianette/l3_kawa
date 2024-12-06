@@ -12,6 +12,11 @@ and typ
   = St of simple_typ
   | TMeth of method_typ
 
+let tUnit = St StUnit
+let tInt = St StInt
+let tBool = St StBool
+let tClass name = St ( StClass name)
+
 
 type expr
   = EBool of bool
