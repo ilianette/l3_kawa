@@ -2,14 +2,14 @@ type ident = string
 type class_name = ident
 
 type simple_typ
-  = TUnit
-  | TInt
-  | TBool
-  | TClass of class_name
+  = StUnit
+  | StInt
+  | StBool
+  | StClass of class_name
 
 type method_typ = class_name * simple_typ list * typ
 and typ
-  = Ts of simple_typ
+  = St of simple_typ
   | TMeth of method_typ
 
 
@@ -39,15 +39,14 @@ module Env = Map.Make(String)
 
 
 type method_def = {
-    name : ident;
     typ : method_typ;
     body :  instr list;
+    params : typ Env.t;
 }
 
 type m_env = method_def Env.t
 
 type class_def = {
-    name : class_name;
     methods : m_env;
     fields : typ Env.t;
     elderly : class_name option
@@ -57,5 +56,8 @@ type class_def = {
 let find_method cl_env cl_name meth_name =
   Env.find meth_name (Env.find cl_name cl_env).methods
 
-let find_field cl_env cl_name f_name =
-  Env.find f_name (Env.find cl_name cl_env).fields
+let find_field_typ cl_env cl_name f_name =
+  match Env.find_opt f_name (Env.find cl_name cl_env).fields with
+  | Some f -> f
+  | None -> TMeth (find_method cl_env cl_name f_name).typ
+
