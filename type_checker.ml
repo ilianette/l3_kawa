@@ -70,7 +70,7 @@ let rec typecheck_program prog =
   in
 
   let typecheck_method venv m =
-    let venv' = Env.union (fun _ arg var -> Some arg) m.params venv in (* si un argument de la fonction à la même nom qu'une variable, on priorise l'argument.*)
+    let venv' = Env.union (fun _ arg var -> Some arg) m.params venv in (* si un argument de la fonction a le même nom qu'une variable, on priorise l'argument.*)
     typecheck venv (EBlock m.body)
   in
 
