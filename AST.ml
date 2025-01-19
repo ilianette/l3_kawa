@@ -1,22 +1,4 @@
-type ident = string
-type class_name = ident
-
-type simple_typ
-  = StUnit
-  | StInt
-  | StBool
-  | StClass of class_name
-
-type method_typ = class_name * simple_typ list * typ
-and typ
-  = St of simple_typ
-  | TMeth of method_typ
-
-let tUnit = St StUnit
-let tInt = St StInt
-let tBool = St StBool
-let tClass name = St ( StClass name)
-
+open Type
 
 type expr
   = EBool of bool
@@ -29,24 +11,40 @@ type expr
   | EField of expr * ident
   | ENew of class_name
   | ENewCt of class_name * expr list
-  | EApp of expr * ident * expr list
+  | EMCall of expr * ident * expr list
+  | ECall of expr * expr list
+    
+  | EFun of ident option * ident list * expr
+
+  | ENeg of expr
+  | ENot of expr
+  | EAdd of expr * expr 
+  | EGt of expr * expr
+  | EEq of expr * expr
+  | EList of expr list
 and instr
   = IPrint of expr
   | IAssign of ident * expr
+  | IDef of ident * bool * typ option * expr
   | IWhile of expr * instr list
   | IRet of expr
-   
-type typed_expr = { expr: expr; typ: typ }
+  | IExpr of expr
 
 
+
+ 
+let freshvar () = TVar (ref (Unbound ""))
 
 module Env = Map.Make(String)
 
 
+(* faire un peu de ménage là dedans *)
 type method_def = {
-    typ : method_typ;
+    (*typ : method_typ;*)
     body :  instr list;
-    params : typ Env.t;
+    args: (ident * typ) list;
+    self : class_name;
+    ret: typ
 }
 
 type m_env = method_def Env.t
@@ -66,8 +64,12 @@ type program = {
 let find_method cl_env cl_name meth_name =
   Env.find meth_name (Env.find cl_name cl_env).methods
 
+let find_elderly cl_env cl_name = (Env.find cl_name cl_env).elderly
+
 let find_field_typ cl_env cl_name f_name =
   match Env.find_opt f_name (Env.find cl_name cl_env).fields with
   | Some f -> f
-  | None -> TMeth (find_method cl_env cl_name f_name).typ
+  | None -> let meth = find_method cl_env cl_name f_name in
+            tFun (List.map snd meth.args) (meth.ret)
+                                                          
 
