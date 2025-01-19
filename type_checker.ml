@@ -121,7 +121,7 @@ let coerceable_or_unify cenv t1 t2 =
   if coerceable cenv t1 t2 then t1 else unify t1 t2
 
 
-let typecheck_program prog e =
+let typecheck_program prog =
   let cenv = prog.classes in
   let venv = Env.empty in
 
@@ -152,6 +152,7 @@ let typecheck_program prog e =
 
     | EBlock instrs -> infer_block venv instrs
 
+
     | ECond(cond, EBlock(b1), EBlock(b2)) ->
        unify (infer venv cond) TBool |> ignore;
        
@@ -159,7 +160,10 @@ let typecheck_program prog e =
        let t2 = infer_if_b venv b2 in
        unify (origin t1) (origin t2) 
 
-
+    | ECond(cond, e1, e2) ->
+       unify (infer venv cond) TBool |> ignore;
+       unify (origin (infer venv e1)) (origin (infer venv e2))
+       
     | EField(obj, field) ->
        let TClass cl_name = unify (infer venv obj) (tClass "") in
        find_field_typ cenv cl_name field
@@ -207,7 +211,6 @@ let typecheck_program prog e =
          | Some f -> infer (Env.add f (tFun t_args (freshvar ())) fun_env) body
        in
        tFun t_args t_ret
-    |  _-> failwith "pas encore implémenté!"
 
   and typecheck_i venv = function
     | IPrint e -> unify TInt (infer venv e) |> ignore; venv
@@ -215,7 +218,7 @@ let typecheck_program prog e =
     | IAssign(var,e) -> coerceable_or_unify  (infer venv e) (infer venv (EVar var)) |> ignore; venv
 
     | IDef(var, _, typ, init) ->
-       let t_init = infer venv init in
+       let t_init = generalize (infer venv init) in
        
        Option.map (unify t_init) typ |> ignore;
        Env.add var t_init venv
@@ -297,7 +300,7 @@ let typecheck_program prog e =
       with _ -> false
   in
   *)
-  generalize (infer venv e)
+  typecheck_seq venv prog.main |> ignore;
   (*
   
   Env.iter (fun _ -> typecheck_class) prog.classes;
