@@ -81,7 +81,35 @@ let rec generalize = function
   | TList t -> TList (generalize t)
   | t -> t
 
+(* la réciproque de 'generalize'. Elle se débarasse des quantificateurs du type tout en préservant le sens en renommant.*)
+let degeneralize t =
+  let rec loop subst t = match t with
+    | QVar(name,_) -> begin
+        try (List.assoc name subst, subst)
+        with Not_found ->
+              let var = freshvar () in
+              (var, (name,var)::subst)
+      end
+    | TVar {contents = Bound t} -> loop subst t
+    | TFun (args, ret) ->
+       (* c'est un peu subtil ici. On ne peut pas maper notre fonction sur les arugments, on pourrait sinon transformer la même variable liée en plusieurs variables libres différentres.*)
+       let (args, subst) =
+         List.fold_right
+           (fun t (types, subst) ->
+             let (nt, subst) = loop subst t in
+             (nt::types, subst))
+           args ([], subst)
+       in
+       
+       let (ret, subst) = loop subst ret in
+       TFun (args, ret), subst
+    | TList t ->
+       let (t, subst) = loop subst t in
+       TList t, subst
 
+    | t -> t, subst
+  in
+ fst (loop [] t)
 (* donnera un jour une variable fresh, c'est pas dur à écrire *)
 
 
@@ -104,7 +132,7 @@ let typecheck_program prog e =
   let [@warning "-8-26"] rec infer venv = function
     | EBool _ -> TBool
     | EInt _ -> TInt
-    | EVar name  -> Env.find name venv
+    | EVar name  -> degeneralize (Env.find name venv)
 
     | ENeg e -> unify TInt (infer venv e)
 
