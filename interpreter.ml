@@ -4,13 +4,19 @@ type value
   = VInt of int
   | VBool of bool
   | VObj of obj
-  | VFun of string list * expr
+  | VFun of closure
   | VList of value list
   | VUnit
   | VNull
 and obj = {
     cl_name : string;
     fields : (string, value) Hashtbl.t;
+  }
+and closure = {
+    name: string option;
+    env: (string, value) Hashtbl.t;
+    args: string list;
+    body: expr;
   }
 
 exception Return of value
@@ -74,8 +80,9 @@ let exec_prog (p : program) : unit =
     | EBlock [] -> VUnit
 
     | ECall(f, args) ->
-       let VFun(args_name, body) = eval f in
-       eval_call [IExpr body] args_name (List.map eval args)
+       let VFun c = eval f in
+       Option.iter (fun f -> Hashtbl.add env f (VFun c) ) c.name;
+       eval_call [IRet c.body] c.args (List.map eval args)
  
     | EMCall(this, f, args) ->
        let this = eval this in
@@ -90,7 +97,8 @@ let exec_prog (p : program) : unit =
        v
              
 
-    | EFun _ -> failwith "à faire! Intéressant."
+    | EFun(name, args, body) ->
+       VFun { name=name; env=env; args=args; body=body}
 
     | ENeg e ->
        let (VInt n) = eval e in
@@ -105,7 +113,11 @@ let exec_prog (p : program) : unit =
     | EGt(l,r) ->
        let (VInt l) = eval l in
        let (VInt r) = eval r in
-       VBool (l > r)
+       VBool (l >= r)
+    | EEq(l,r) ->
+      let (VInt l) = eval l in
+      let (VInt r) = eval r in
+      VBool (l = r)
     | EList(l) -> VList (List.map eval l)
        
 
