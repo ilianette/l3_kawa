@@ -1,0 +1,6 @@
+main {
+     val f = (fn f (n,x) -> if (n==0) { x } else { f(n-1,n+x) });
+     val g = (fn (n) -> f(n,0));
+     print(g(10));
+     // 10 + 9 + ... + 1 = 55
+}

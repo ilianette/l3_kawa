@@ -1,0 +1,3 @@
+main {
+     val f = (fun (int x) -> x + x);
+}

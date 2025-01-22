@@ -1,0 +1,35 @@
+class a {
+attribute int b;
+
+method _ type_infere(int x, _ y) {
+       return x + y;
+}
+
+method _ type_poly(_ x)  {
+       return x;
+}
+
+method 'a syntaxe_alternative('a x) {
+       return x;
+}
+
+}
+       
+
+main {
+     val a  = new a;
+     val f = (fn (x) -> x + x);
+
+     print(a.type_infere(2,3));
+     if (a.type_poly(true) || a.syntaxe_alternative(false)) {
+     	print(0);
+     }
+     else {
+	print(1);
+     }
+     // a.type_infere(true, 2) ferait bien entendu crash
+     // output:
+     // 5
+     // 0
+     
+}

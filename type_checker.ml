@@ -1,24 +1,17 @@
 open Type
 open AST
 
-
 module Env = Map.Make(String)
-
 type typ_env = typ Env.t
 
-type typeMissmatch = TypeMissmatch of typ * typ
 
-exception NonHomogeneBlock of typeMissmatch
-exception NonHomogeneCond of typeMissmatch
-exception NotAnObject of typ
-exception GTypeMissmatch of typeMissmatch
-exception ArgsTypeMissmatch
-exception MethDoesNotExist 
 exception UnificationImpossible of typ * typ
-
+exception NotAssignable of expr
+exception Unknown of ident
+exception BadArgs of typ list * typ list
 
 let rec origin cenv = function
-  |TClass name -> begin
+  | TClass name -> begin
       match (Env.find name cenv).elderly with
       | Some p -> origin cenv (tClass p)
       | None -> (tClass name)
@@ -27,7 +20,7 @@ let rec origin cenv = function
 
 
 (* Vrai si t1 <: t2.*)
-let rec coerceable env t1 (* to *) t2 =
+let rec coerceable env t1 t2 =
   if t1 = t2 then true else
     match t1, t2 with
     | TClass x, TClass y -> begin
@@ -38,6 +31,7 @@ let rec coerceable env t1 (* to *) t2 =
     | QVar (_,constraints) , t2 ->
        List.exists (fun t1 -> coerceable env t1 t2) constraints          
     | _ -> false
+
 
 (* crash si la première variable apparaît dans la seconde.*)
 let rec occurs tv = function 
@@ -50,13 +44,12 @@ let rec occurs tv = function
 
 
 (* fais les substitutions nécessaires pour que t1 et t2 deviennent leur unificateur principal.
-   On retourne aussi l'unificateur par commodité.
-   On fait aussi deux trois bidouilles par commodité (pour les classes et les fonctions "sans" arguments
- *)
-let rec unify t1 t2 = if t1 == t2 then t1 else 
+   On retourne aussi l'unificateur et on fait quelques bidouilles par commodité  *)
+let [@warning "-57"] rec unify t1 t2 = if t1 == t2 then t1 else 
   match t1, t2 with
   | TVar {contents = Bound t1}, t2 | t2, TVar {contents = Bound t1}
     -> unify t1 t2
+
   | TVar ({contents = Unbound _} as t1), t2 | t2, TVar ({ contents = Unbound _ } as t1) -> 
     occurs t1 t2;
     t1 := Bound t2 ; t2
@@ -65,52 +58,15 @@ let rec unify t1 t2 = if t1 == t2 then t1 else
   | TFun([], r1) , TFun([tUnit], r2) | TFun([tUnit], r2) , TFun([],r1)
     -> TFun([tUnit], unify r1 r2)
   
-  | TFun(args1,ret1), TFun(args2, ret2) ->
-     if List.length args1 = List.length args2
-     then TFun (List.map2 unify args1 args2, unify ret1 ret2)
-     else UnificationImpossible(t1,t2) |> raise
+  | TFun(args1,ret1), TFun(args2, ret2) when List.length args1 = List.length args2 
+    -> TFun (List.map2 unify args1 args2, unify ret1 ret2)
 
-  | TClass x, TClass y when x = y -> TClass x
-                                          
-  | TClass x, d  | d, TClass x  -> if d = dummy_class then TClass x else UnificationImpossible(t1,t2) |> raise
+  | TClass x, TClass y when x = y -> TClass x                          
+  | (TClass x, d  | d, TClass x) when d = dummy_class  -> TClass x
+
   | _ -> UnificationImpossible(t1, t2) |> raise
 
-let rec generalize = function 
-  | TVar { contents = Unbound x } -> QVar(x, [])
-  | TFun(args, ret) -> TFun(List.map generalize args, generalize ret)
-  | TList t -> TList (generalize t)
-  | t -> t
 
-(* la réciproque de 'generalize'. Elle se débarasse des quantificateurs du type tout en préservant le sens en renommant.*)
-let degeneralize t =
-  let rec loop subst t = match t with
-    | QVar(name,_) -> begin
-        try (List.assoc name subst, subst)
-        with Not_found ->
-              let var = freshvar () in
-              (var, (name,var)::subst)
-      end
-    | TVar {contents = Bound t} -> loop subst t
-    | TFun (args, ret) ->
-       (* c'est un peu subtil ici. On ne peut pas maper notre fonction sur les arugments, on pourrait sinon transformer la même variable liée en plusieurs variables libres différentres.*)
-       let (args, subst) =
-         List.fold_right
-           (fun t (types, subst) ->
-             let (nt, subst) = loop subst t in
-             (nt::types, subst))
-           args ([], subst)
-       in
-       
-       let (ret, subst) = loop subst ret in
-       TFun (args, ret), subst
-    | TList t ->
-       let (t, subst) = loop subst t in
-       TList t, subst
-
-    | t -> t, subst
-  in
- fst (loop [] t)
-(* donnera un jour une variable fresh, c'est pas dur à écrire *)
 
 
 (*
@@ -123,36 +79,41 @@ let coerceable_or_unify cenv t1 t2 =
 
 let typecheck_program prog =
   let cenv = prog.classes in
-  let venv = Env.empty in
+  let venv = prog.globals in
 
+  let fields = fields cenv in
   let origin = origin cenv in
   let coerceable_or_unify = coerceable_or_unify cenv in
-  
+
+  let find i venv = try Env.find i venv with | _ -> Unknown i |> raise in 
   
   let [@warning "-8-26"] rec infer venv = function
     | EBool _ -> TBool
     | EInt _ -> TInt
-    | EVar name  -> degeneralize (Env.find name venv)
+    | EUnit -> TUnit
+
+    | EVar name  ->  degeneralize (find name venv)
 
     | ENeg e -> unify TInt (infer venv e)
 
     | ENot e -> unify TBool (infer venv e)
 
-    | EAdd(e1, e2) -> unify TInt (infer venv e1)
-                    |> ignore; unify TInt (infer venv e2)
-
-    | EEq(e1, e2) -> unify (infer venv e1) (infer venv e2)
-                   |> ignore; TBool
-    | EGt(e1, e2) -> unify TInt (infer venv e1)
-                   |> ignore; unify TInt (infer venv e2)
-                   |> ignore; TBool
+    | EBop(e1,b,e2) -> begin
+        let t = unify (infer venv e1) (infer venv e2) in
+        match b with
+        | BAdd | BMul | BDiv | BMod | BSub -> unify TInt t
+        | BAnd | BOr -> unify TBool t
+        | BGT | BLT -> unify TInt t |> ignore; TBool
+        | BEq -> TBool
+      end
 
     | EList l ->
-       List.fold_left unify (freshvar ()) (List.map (infer venv) l)
+       let t = List.fold_left unify (freshvar ()) (List.map (infer venv) l) in
+       TList t
 
     | EBlock instrs -> infer_block venv instrs
 
-
+    (* Le contenu des ifs est toujours un block, cf le parser. *)
     | ECond(cond, EBlock(b1), EBlock(b2)) ->
        unify (infer venv cond) TBool |> ignore;
        
@@ -160,41 +121,38 @@ let typecheck_program prog =
        let t2 = infer_if_b venv b2 in
        unify (origin t1) (origin t2) 
 
-    | ECond(cond, e1, e2) ->
-       unify (infer venv cond) TBool |> ignore;
-       unify (origin (infer venv e1)) (origin (infer venv e2))
-       
     | EField(obj, field) ->
        let TClass cl_name = unify (infer venv obj) (tClass "") in
-       find_field_typ cenv cl_name field
+       degeneralize (find_field_typ cenv cl_name field)
 
     | ENew cl_name -> tClass cl_name
-
     | ENewCt(cl_name, args) ->
        let t_args = List.map (infer venv) args in
-       let t_ct_args = List.map snd (find_method cenv cl_name "constructor").args in
-       
-       List.map2 unify t_args t_ct_args |> ignore;
+       let t_ct_args = List.map snd (find_method cenv cl_name "constructor").args   in
 
+       List.map2 unify t_args t_ct_args |> ignore;
        tClass cl_name
 
 
     | EMCall(caller, meth_name, args) ->
        let t_caller = infer venv caller in
-       (* une classe sans nom s'unifie à n'importe quelle classe, ça n'a pas vraiment de sens si ce n'est pour faciliter l'écriture ici.*)
+       let t_args = List.map (infer venv) args in
+       
        let TClass cl_name = unify t_caller (tClass "") in 
 
-       let meth = find_method cenv cl_name meth_name in
-       List.map2 unify (List.map (infer venv) args) (List.map snd meth.args) |> ignore;
-       meth.ret 
+       let TFun(t_m_args, t_ret) = degeneralize (method_typ cenv cl_name meth_name) in     
 
+       if (List.length t_args <> List.length t_m_args) then BadArgs(t_m_args, t_args) |> raise;
+       List.map2 unify t_args t_m_args|> ignore;
+       
+       t_ret
     | ECall(f, args) ->
        let t_args = List.map (infer venv) args in
        
        let TFun(t_f_args, t_ret) = unify (infer venv f) (tFun t_args (freshvar ())) in
-
-       List.map2 coerceable_or_unify t_args t_f_args |> ignore;
-       t_ret
+       (try List.map2 coerceable_or_unify t_args t_f_args |> ignore;
+           t_ret
+       with Not_found -> BadArgs(t_f_args, t_args) |> raise)
 
     | EFun(name, args, body) ->
 
@@ -215,95 +173,87 @@ let typecheck_program prog =
   and typecheck_i venv = function
     | IPrint e -> unify TInt (infer venv e) |> ignore; venv
 
-    | IAssign(var,e) -> coerceable_or_unify  (infer venv e) (infer venv (EVar var)) |> ignore; venv
+    | IAssign((EVar _) as e1,e2) | IAssign((EField _) as e1, e2)
+      -> coerceable_or_unify (infer venv e2) (infer venv e1) |> ignore; venv
+    | IAssign(e,_) -> NotAssignable(e) |> raise
 
     | IDef(var, _, typ, init) ->
-       let t_init = generalize (infer venv init) in
-       
-       Option.map (unify t_init) typ |> ignore;
-       Env.add var t_init venv
+       let t_init = (infer venv init) in
+       Option.map (fun t -> unify t_init (degeneralize t)) typ |> ignore;
+       Env.add var (generalize t_init) venv
 
-    (*
-      | IMethDef(class_name, name, args, ret, body) ->
-      let env =
-      (Env.find cl_name cenv).fields
-      |> Env.union (fun _ var _ -> var) venv 
-      |> Env.add "this" (tClass cl_name)
-      in
-      let (St (TFun(args, ret))) =
-      infer env (EFun(Some name, tClass cl_name:: List.map fst args, body))
-      in
-      TMeth {
-      self: cl_name;
-      coerceable_or_unify (tClass cl_name) (List.hd args);
-     *)
     | IWhile(cond, seq) ->
        unify (infer venv cond) TBool |> ignore;
        typecheck_seq venv seq
 
-    | IRet e | IExpr e -> infer venv e |> ignore; venv
+    | IRet e | ILocRet e | IExpr e -> infer venv e |> ignore; venv
   and  typecheck_seq venv seq = List.fold_left typecheck_i venv seq
 
 
 
+  and infer_block venv is =
+    let rec loop venv is acc = match is with
+      | [] -> acc
+      | (IRet e)::is ->
+         let t = infer venv e  in
+         begin match acc with
+         | None -> origin t |> Option.some
+         | Some acc -> loop venv is
+                         (Some (unify acc (origin t)))
+               
+         end
 
-  and infer_block_aux venv is acc = match is with
-    | [] -> acc
-    | (IRet e)::is ->
-       let t = infer venv e  in
-       begin match acc with
-       | None -> origin t |> Option.some
-       | Some acc -> infer_block_aux venv is
-                       (Some (unify acc (origin t)))
-                   
-       end
-    | IWhile(_, instrs) as i :: is -> let venv = typecheck_i venv i in
-                                      infer_block_aux venv is (infer_block_aux venv instrs acc)
-    | IExpr(EBlock instrs as e) :: is ->
-       infer venv e |> ignore;
-       infer_block_aux venv is (infer_block_aux venv instrs acc)
+      (* ensuite on fait que propager et typecheck au passage. *)
+      | IWhile(_, instrs) as i :: is -> let venv = typecheck_i venv i in
+                                        let acc_while = loop venv instrs acc in
+                                        loop venv is acc_while 
+      | IExpr(EBlock instrs as e) :: is ->
+         infer venv e |> ignore;
+         loop venv is (loop venv instrs acc)
 
-    | IExpr(ECond(_,b1,b2) as e)::is ->
-       infer venv e |> ignore;
-       let acc = infer_block_aux venv ([IExpr(b1)]) acc in
-       infer_block_aux venv is (infer_block_aux venv ([IExpr(b2)]) acc)
+      (* le contenu des ifs est toujours un block. Cf le parser *)
+      | IExpr(ECond(_,EBlock(b1),EBlock(b2)) as e)::is ->
+         infer venv e |> ignore;
+         let acc1 = loop venv b1 acc in
+         let acc2 = loop venv b2 acc1 in
+         loop venv is acc2
 
-    |  i::is -> let venv = typecheck_i venv i in infer_block_aux venv is acc   
- 
-  and infer_block venv is = Option.value ~default:TUnit (infer_block_aux venv is None) 
+      |  i::is -> loop (typecheck_i venv i) is acc
+    in
+    
+    Option.value ~default:TUnit (loop venv is None) 
+
 
   (* c'est en soit un fold avec un cas d'arêt un peu spécial *)
   and infer_if_b venv = function
     | [] -> TUnit
-    | [IExpr e] -> infer venv e
+    | [ILocRet e] -> infer venv e
     | i::is -> infer_if_b (typecheck_i venv i) is 
   in 
 
-  (*
-  let typecheck_method venv m =
-    let venv = Env.union (fun _ arg _ -> Some arg) (Env.of_list m.args) venv in (* si un argument de la fonction a le même nom qu'une variable, on priorise l'argument.*)
-    typecheck venv (EBlock m.body)
+  
+  let [@warning "-8"] typecheck_method  venv name m =
+    let venv = Env.union (fun _ arg _ -> Some arg) (Env.of_list m.args) venv in
+    let f = EFun(Some name, List.map fst m.args, EBlock m.body) in
+
+    let TFun(args, ret) = generalize (infer venv f) in
+    
+    m.ret <- ret;
+    m.args <- List.map2 (fun (name, _) t -> name, t) m.args args;
+
   in
 
-  
-  let typecheck_class c =
-    (* est incorrect pour une classe dont la.e parent.e a des attributs*)
-    let venv = Env.union (fun _ atr _ -> Some atr) c.fields venv in
+  let typecheck_class name c =
+    let venv =
+      Env.union (fun _ atr _ -> Some atr) (fields c) venv
+      |> Env.add "this" (tClass name) in
 
-    Env.iter (fun _ -> typecheck_method venv) c.methods
+    Env.iter 
+      (typecheck_method venv)
+      c.methods
   in
-   *)
- (* let typecheck_e venv e t =
-    let t_e = infer venv e in
-    (coerceable cenv t_e t) ||
-      try unify (infer venv e) t |> ignore; true
-      with _ -> false
-  in
-  *)
-  typecheck_seq venv prog.main |> ignore;
-  (*
-  
-  Env.iter (fun _ -> typecheck_class) prog.classes;
-  typecheck venv (EBlock prog.main);
-   *)
+   
+  Env.iter typecheck_class prog.classes;
+  infer venv (EBlock prog.main) |> ignore
+   
   

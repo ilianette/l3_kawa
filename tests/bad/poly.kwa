@@ -1,0 +1,20 @@
+class c {
+
+  method 'a g('b f, 'c n) {
+    return f(n);
+  }
+  // équivalent à
+  method _ g(_ f, _ n) {
+    return f(n);
+  } 
+  // le type inféré est ('a -> 'b, 'a) -> 'b
+}
+
+main {
+  val id = (fn (x) -> x);
+  val d = new c;
+  print(d.g(id, 1));
+  val b = d.g(id, true);
+  b + 1; // err, ne compile pas
+}
+	

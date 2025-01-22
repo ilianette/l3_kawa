@@ -1,0 +1,5 @@
+main {
+  val id = (fn (x) -> x);
+  print(id(2)-id(3));
+  if (id(true)) { print(0); } else { print(1);}
+}

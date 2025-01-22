@@ -1,0 +1,2 @@
+main {
+val id = (fun x -> x)

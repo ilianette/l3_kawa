@@ -1,0 +1,4 @@
+main {
+
+let f = (fn f (n,x) -> if (n==0) { x } else { f(n-1,x+x) })
+}
